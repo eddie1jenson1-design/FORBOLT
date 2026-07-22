@@ -118,24 +118,63 @@ export type Database = {
       }
       profiles: {
         Row: {
+          avatar_emoji: string
           balance: number
           created_at: string
           id: string
           username: string
         }
         Insert: {
+          avatar_emoji?: string
           balance?: number
           created_at?: string
           id: string
           username: string
         }
         Update: {
+          avatar_emoji?: string
           balance?: number
           created_at?: string
           id?: string
           username?: string
         }
         Relationships: []
+      }
+      round_participants: {
+        Row: {
+          id: string
+          round_id: string
+          user_id: string
+          joined_at: string
+        }
+        Insert: {
+          id?: string
+          round_id: string
+          user_id: string
+          joined_at?: string
+        }
+        Update: {
+          id?: string
+          round_id?: string
+          user_id?: string
+          joined_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_participants_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "rounds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "round_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rounds: {
         Row: {
@@ -149,6 +188,7 @@ export type Database = {
           item_id: string | null
           starting_bid: number
           status: string
+          title: string | null
           winner_id: string | null
           winning_bid: number | null
         }
@@ -163,6 +203,7 @@ export type Database = {
           item_id?: string | null
           starting_bid?: number
           status?: string
+          title?: string | null
           winner_id?: string | null
           winning_bid?: number | null
         }
@@ -177,6 +218,7 @@ export type Database = {
           item_id?: string | null
           starting_bid?: number
           status?: string
+          title?: string | null
           winner_id?: string | null
           winning_bid?: number | null
         }
@@ -226,6 +268,7 @@ export type Database = {
         Returns: undefined
       }
       settle_round: { Args: { _round_id: string }; Returns: undefined }
+      start_round: { Args: { _title: string | null }; Returns: string }
     }
     Enums: {
       [_ in never]: never

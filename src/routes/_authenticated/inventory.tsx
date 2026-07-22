@@ -5,144 +5,157 @@ import { AppShell } from "@/components/AppShell";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/inventory")({
-  head: () => ({ meta: [{ title: "My Stuff & Market — BET MONEY" }, { name: "description", content: "Your treasures and the resale market." }] }),
+  head: () => ({ meta: [{ title: "My Stuff & Market — BET MONEY" }] }),
   component: InventoryPage,
 });
 
 type Item = { id: string; name: string; emoji: string; description: string };
-type InvRow = { id: string; owner_id: string; item_id: string; acquired_price: number; listed_price: number | null; acquired_at: string };
-type Profile = { id: string; username: string; balance: number };
+type Inventory = { id: string; item_id: string; owner_id: string; acquired_at: string; acquired_price: number; listed_price: number | null };
+type Profile = { id: string; username: string; avatar_emoji: string };
 
 function InventoryPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [items, setItems] = useState<Record<string, Item>>({});
-  const [inv, setInv] = useState<InvRow[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
-  const [priceInput, setPriceInput] = useState<Record<string, string>>({});
+  const [mine, setMine] = useState<Inventory[]>([]);
+  const [market, setMarket] = useState<(Inventory & { owner_username: string; owner_avatar: string })[]>([]);
+  const [tab, setTab] = useState<"mine" | "market">("mine");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [listPrice, setListPrice] = useState<number | "">("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => { supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null)); }, []);
 
+  const load = async () => {
+    const [{ data: its }, { data: ps }, { data: inv }] = await Promise.all([
+      supabase.from("items").select("*"),
+      supabase.from("profiles").select("id, username, avatar_emoji"),
+      supabase.from("inventory").select("*").order("acquired_at", { ascending: false }),
+    ]);
+    if (its) setItems(Object.fromEntries(its.map((x: Item) => [x.id, x])));
+    if (ps) setProfiles(Object.fromEntries(ps.map((p: Profile) => [p.id, p])));
+    if (inv) {
+      const all = inv as Inventory[];
+      setMine(all.filter((i) => i.owner_id === userId));
+      setMarket(
+        all.filter((i) => i.listed_price != null && i.owner_id !== userId)
+          .map((i) => ({ ...i, owner_username: profiles[i.owner_id]?.username ?? "someone", owner_avatar: profiles[i.owner_id]?.avatar_emoji ?? "🎲" })),
+      );
+    }
+  };
+
+  useEffect(() => { if (userId) load(); }, [userId]);
+
   useEffect(() => {
-    const load = async () => {
-      const [{ data: it }, { data: ps }, { data: rows }] = await Promise.all([
-        supabase.from("items").select("*"),
-        supabase.from("profiles").select("id, username, balance"),
-        supabase.from("inventory").select("*").order("acquired_at", { ascending: false }),
-      ]);
-      if (it) setItems(Object.fromEntries(it.map((x: Item) => [x.id, x])));
-      if (ps) setProfiles(Object.fromEntries(ps.map((p: Profile) => [p.id, p])));
-      if (rows) setInv(rows as InvRow[]);
-    };
-    load();
     const ch = supabase
-      .channel("inv-room")
-      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, load)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (p) => {
-        const pr = p.new as Profile;
-        setProfiles((prev) => ({ ...prev, [pr.id]: pr }));
-      })
+      .channel("inv-market")
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, []);
+  }, [userId]);
 
-  const mine = inv.filter((r) => r.owner_id === userId);
-  const market = inv.filter((r) => r.listed_price != null && r.owner_id !== userId);
-
-  const list = async (row: InvRow) => {
-    const p = parseInt(priceInput[row.id] ?? "");
-    if (!p || p <= 0) return toast.error("Enter a valid price");
-    const { error } = await supabase.from("inventory").update({ listed_price: p }).eq("id", row.id);
-    if (error) toast.error(error.message); else toast.success(`Listed for ${p} BM`);
-  };
-  const unlist = async (row: InvRow) => {
-    const { error } = await supabase.from("inventory").update({ listed_price: null }).eq("id", row.id);
+  const listItem = async (invId: string) => {
+    if (listPrice === "" || listPrice < 1) { toast.error("Enter a price ≥ 1"); return; }
+    setBusy(true);
+    const { error } = await supabase.from("inventory").update({ listed_price: Number(listPrice) }).eq("id", invId);
     if (error) toast.error(error.message);
+    else { toast.success("Listed on the market!"); setEditing(null); setListPrice(""); }
+    setBusy(false);
   };
-  const buy = async (row: InvRow) => {
-    const { error } = await supabase.rpc("buy_listed", { _inventory_id: row.id });
-    if (error) toast.error(error.message); else toast.success("Bought! 🎉");
+
+  const unlist = async (invId: string) => {
+    const { error } = await supabase.from("inventory").update({ listed_price: null }).eq("id", invId);
+    if (error) toast.error(error.message);
+    else toast.success("Removed from market");
+  };
+
+  const buy = async (invId: string) => {
+    setBusy(true);
+    const { error } = await supabase.rpc("buy_listed", { _inventory_id: invId });
+    if (error) toast.error(error.message);
+    else toast.success("Purchased! It's in your inventory.");
+    setBusy(false);
   };
 
   return (
     <AppShell>
-      <div className="grid gap-8">
-        <section>
-          <h1 className="font-display text-3xl font-bold">My Stuff</h1>
-          <p className="mt-1 text-sm text-muted-foreground">List anything you own on the market. Set your own price.</p>
+      <div className="flex items-center gap-2 border-b border-border pb-3">
+        <button onClick={() => setTab("mine")} className={tab === "mine" ? "btn-gold" : "btn-ghost"}>🎒 My Stuff</button>
+        <button onClick={() => setTab("market")} className={tab === "market" ? "btn-gold" : "btn-ghost"}>🏷️ Market</button>
+      </div>
+
+      {tab === "mine" && (
+        <div className="mt-6">
           {mine.length === 0 ? (
-            <div className="panel mt-4 p-8 text-center text-muted-foreground">You don't own anything yet. Win an auction!</div>
+            <div className="panel p-10 text-center">
+              <div className="text-5xl">📭</div>
+              <p className="mt-3 text-muted-foreground">You don't own anything yet. Win an auction or buy from the Market.</p>
+            </div>
           ) : (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {mine.map((row) => {
-                const it = items[row.item_id];
-                if (!it) return null;
-                const listed = row.listed_price != null;
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {mine.map((inv) => {
+                const item = items[inv.item_id];
                 return (
-                  <div key={row.id} className="panel p-5">
-                    <div className="flex items-start gap-3">
-                      <div className="text-4xl">{it.emoji}</div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-display text-lg font-bold">{it.name}</div>
-                        <div className="text-xs text-muted-foreground">Paid {row.acquired_price} BM</div>
-                      </div>
+                  <div key={inv.id} className="panel p-5">
+                    <div className="flex items-start justify-between">
+                      <div className="text-4xl">{item?.emoji ?? "❓"}</div>
+                      {inv.listed_price != null && <span className="chip !bg-[color:var(--felt)] !text-white">listed {inv.listed_price} BM</span>}
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">{it.description}</p>
-                    {listed ? (
-                      <div className="mt-3 flex items-center gap-2">
-                        <span className="money-chip">Listed at {row.listed_price} BM</span>
-                        <button onClick={() => unlist(row)} className="btn-ghost">Unlist</button>
-                      </div>
-                    ) : (
+                    <h3 className="mt-2 font-display text-lg font-bold">{item?.name ?? "Unknown"}</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{item?.description}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Acquired for {inv.acquired_price} BM</p>
+
+                    {editing === inv.id ? (
                       <div className="mt-3 flex gap-2">
-                        <input
-                          type="number" min={1}
-                          value={priceInput[row.id] ?? ""}
-                          onChange={(e) => setPriceInput((p) => ({ ...p, [row.id]: e.target.value }))}
-                          placeholder="Price"
-                          className="w-24 rounded-lg border border-input bg-card px-3 py-2 outline-none focus:border-[color:var(--gold)]"
-                        />
-                        <button onClick={() => list(row)} className="btn-primary">List for sale</button>
+                        <input type="number" value={listPrice} onChange={(e) => setListPrice(e.target.value === "" ? "" : Number(e.target.value))} placeholder="Price" min={1}
+                          className="w-full rounded-lg border border-input bg-card px-3 py-2 outline-none focus:border-[color:var(--gold)]" />
+                        <button onClick={() => listItem(inv.id)} disabled={busy} className="btn-gold">List</button>
+                        <button onClick={() => { setEditing(null); setListPrice(""); }} className="btn-ghost">Cancel</button>
                       </div>
+                    ) : inv.listed_price != null ? (
+                      <button onClick={() => unlist(inv.id)} className="btn-ghost mt-3 w-full">Remove from market</button>
+                    ) : (
+                      <button onClick={() => { setEditing(inv.id); setListPrice(""); }} className="btn-primary mt-3 w-full">List for sale →</button>
                     )}
                   </div>
                 );
               })}
             </div>
           )}
-        </section>
+        </div>
+      )}
 
-        <section>
-          <h2 className="font-display text-3xl font-bold">🏷️ Market</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Buy directly from other players — no bidding, first click wins.</p>
+      {tab === "market" && (
+        <div className="mt-6">
           {market.length === 0 ? (
-            <div className="panel mt-4 p-8 text-center text-muted-foreground">Nothing on the market right now.</div>
+            <div className="panel p-10 text-center">
+              <div className="text-5xl">🏪</div>
+              <p className="mt-3 text-muted-foreground">Nothing for sale right now. Win an auction and list it!</p>
+            </div>
           ) : (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {market.map((row) => {
-                const it = items[row.item_id];
-                const seller = profiles[row.owner_id];
-                if (!it) return null;
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {market.map((inv) => {
+                const item = items[inv.item_id];
                 return (
-                  <div key={row.id} className="panel p-5">
-                    <div className="flex items-start gap-3">
-                      <div className="text-4xl">{it.emoji}</div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-display text-lg font-bold">{it.name}</div>
-                        <div className="text-xs text-muted-foreground">Seller: @{seller?.username ?? "…"}</div>
-                      </div>
+                  <div key={inv.id} className="panel p-5">
+                    <div className="flex items-start justify-between">
+                      <div className="text-4xl">{item?.emoji ?? "❓"}</div>
+                      <span className="chip">{inv.owner_avatar} @{inv.owner_username}</span>
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">{it.description}</p>
+                    <h3 className="mt-2 font-display text-lg font-bold">{item?.name ?? "Unknown"}</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{item?.description}</p>
                     <div className="mt-3 flex items-center justify-between">
-                      <span className="money-chip">💰 {row.listed_price} BM</span>
-                      <button onClick={() => buy(row)} className="btn-gold">Buy now</button>
+                      <span className="font-display text-2xl font-black">{inv.listed_price} <span className="text-sm">BM</span></span>
+                      <button onClick={() => buy(inv.id)} disabled={busy} className="btn-gold">Buy →</button>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
-        </section>
-      </div>
+        </div>
+      )}
     </AppShell>
   );
 }

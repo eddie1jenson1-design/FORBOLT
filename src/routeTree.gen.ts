@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedInventoryRouteImport } from './routes/_authenticated/inventory'
 import { Route as AuthenticatedPlayRouteImport } from './routes/_authenticated/play'
+import { Route as AuthenticatedAuctionIdRouteImport } from './routes/_authenticated/auction/$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -39,18 +40,25 @@ const AuthenticatedPlayRoute = AuthenticatedPlayRouteImport.update({
   path: '/play',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAuctionIdRoute = AuthenticatedAuctionIdRouteImport.update({
+  id: '/auction/$id',
+  path: '/auction/$id',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/inventory': typeof AuthenticatedInventoryRoute
   '/play': typeof AuthenticatedPlayRoute
+  '/auction/$id': typeof AuthenticatedAuctionIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/inventory': typeof AuthenticatedInventoryRoute
   '/play': typeof AuthenticatedPlayRoute
+  '/auction/$id': typeof AuthenticatedAuctionIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -59,12 +67,13 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/inventory': typeof AuthenticatedInventoryRoute
   '/_authenticated/play': typeof AuthenticatedPlayRoute
+  '/_authenticated/auction/$id': typeof AuthenticatedAuctionIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/inventory' | '/play'
+  fullPaths: '/' | '/auth' | '/inventory' | '/play' | '/auction/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/inventory' | '/play'
+  to: '/' | '/auth' | '/inventory' | '/play' | '/auction/$id'
   id:
     | '__root__'
     | '/'
@@ -72,6 +81,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/inventory'
     | '/_authenticated/play'
+    | '/_authenticated/auction/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -117,17 +127,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPlayRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/auction/$id': {
+      id: '/_authenticated/auction/$id'
+      path: '/auction/$id'
+      fullPath: '/auction/$id'
+      preLoaderRoute: typeof AuthenticatedAuctionIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedInventoryRoute: typeof AuthenticatedInventoryRoute
   AuthenticatedPlayRoute: typeof AuthenticatedPlayRoute
+  AuthenticatedAuctionIdRoute: typeof AuthenticatedAuctionIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedInventoryRoute: AuthenticatedInventoryRoute,
   AuthenticatedPlayRoute: AuthenticatedPlayRoute,
+  AuthenticatedAuctionIdRoute: AuthenticatedAuctionIdRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
